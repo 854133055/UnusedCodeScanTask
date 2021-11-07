@@ -1,0 +1,132 @@
+task codeScan(dependsOn: assembleRelease) {
+    //TODO 资源检查，生成keep.xml文件，重新build. 按组件对扫出来的资源做是否在组件中的check
+    //TODO 前置检查，校验applicationId是否有配
+    doLast {
+        if (project.getBuildDir().exists()) {
+            String basePath = project.getBuildDir().path + "/outputs/mapping/release/"
+            //无用Class
+            File uoUseClassRecode = new File(basePath + "usage.txt")
+            if (uoUseClassRecode.exists()) {
+                FileReader fr = new FileReader(uoUseClassRecode)
+                BufferedReader reader = new BufferedReader(fr)
+                List<ClassRecorder> classList = new ArrayList<>()
+                ClassRecorder recorder = null
+                String packageName = "${project.android.defaultConfig.applicationId}"
+                if (packageName == null || packageName.size() == 0) {
+                    throw new IllegalArgumentException(
+                            "packageName为空，请检查是否在build.gradle的defaultConfig中配置applicationId属性")
+                }
+                while(reader.ready()){
+                    String line = reader.readLine()
+                    //新的类
+                    if (!line.startsWith("  ")) {
+                        if (isBusinessCode(recorder, packageName)){ //如果是业务代码，记录下来
+                            classList.add(recorder)
+                        }
+                        recorder = new ClassRecorder()
+                        recorder.className = line
+                    } else {
+                        recorder.classMethodList.add(line)
+                    }
+                }
+                reader.close()
+                fr.close()
+                //读取结束,排序整理
+                List<ClassRecorder> result = sortByClassName(classList, packageName.size()+1)
+                //排序完，输出到文件
+                File outPutFile = new File(basePath + "unusedClass.txt")
+                if (outPutFile.exists()) outPutFile.createNewFile()
+                BufferedWriter bw = new BufferedWriter(new FileWriter(outPutFile))
+                for (ClassRecorder cr : result) {
+                    bw.writeLine(cr.className)
+                }
+                bw.close()
+            } else {
+                throw new IllegalArgumentException("编译产物文件不存在")
+            }
+
+            boolean checkResPrefix = true
+            //无用资源
+            File uoUsedRes = new File(basePath + "resources.txt")
+            if (uoUseClassRecode.exists()) {
+                FileReader fr = new FileReader(uoUsedRes)
+                BufferedReader reader = new BufferedReader(fr)
+                List<String> resList = new ArrayList<>()
+                while(reader.ready()){
+                    String line = reader.readLine()
+                    if (line.startsWith("Skipped unused resource")) {
+                        String name = line.split(" ")[3]
+                        name = name.substring(0, name.size()-1)
+                        resList.add(name)
+                    }
+                }
+                reader.close()
+                fr.close()
+                File outPutFile = new File(basePath + "unusedRes.txt")
+                if (outPutFile.exists()) outPutFile.createNewFile()
+                BufferedWriter bw = new BufferedWriter(new FileWriter(outPutFile))
+                for (String name : resList) {
+                    bw.writeLine(name)
+                }
+                bw.close()
+            }
+        }
+    }
+}
+
+/*
+/**
+ * 是否是业务代码
+ * @param line
+ */
+static boolean isBusinessCode(ClassRecorder recorder, String packageName) {
+    if (recorder == null) return false
+    return recorder.className.contains(packageName)
+}
+
+static List<ClassRecorder> sortByClassName(List<ClassRecorder> list, int defaultStartLength){
+    List<ClassRecorder> result = new ArrayList<>(list.size())
+    result.addAll(list)
+    sortByClassName(result, 0, result.size()-1, defaultStartLength)
+    return result
+}
+
+static sortByClassName(List<ClassRecorder> list, int begin, int end, int d){
+    if(begin >= end){return }
+    int[] count = new int[258]
+    for (int i = 0; i < 256+2; i++) {
+        count[i] = 0;
+    }
+    for(int i = begin; i <= end; i++){ //attention 这个起始的位置是begin，end，每次只处理这一部分
+        int index = charAt(list.get(i).className, d) + 2;
+        count[index]+=1;
+    }
+    for(int i = 0; i < count.length-1; i++){
+        count[i+1] += count[i];
+    }
+    List<ClassRecorder> result = new ArrayList<>(list.size());
+    for(int i = begin; i <= end; i++){
+        int index = charAt(list[i].className ,d) + 1
+        result[count[index]++] = list.get(i);
+    }
+    for(int i = begin; i <= end; i++){
+        list[i] = result[i - begin];
+    }
+    //当前按d位的排序已完成
+    for(int r = 0; r < count.length-2; r++){
+        sortByClassName(list, begin + count[r], begin + count[r+1]-1, d+1);
+    }
+}
+
+static int charAt(string, d) {
+    if (d < string.size()){
+        return Character.codePointAt(string, d)
+    } else {
+        return -1;
+    }
+}
+
+class ClassRecorder {
+    String className
+    List<String> classMethodList = new ArrayList<>()
+}
